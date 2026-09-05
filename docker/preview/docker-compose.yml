@@ -1,0 +1,43 @@
+# dsh-preview：本地预览 DeepSeek Harness 官方闭包 + roubaai 媒体插件
+#
+# 拓扑（参考 autovideo 的 nginx 反代组织方式）：
+#   dsh 服务容器（node:22-slim）
+#     ├─ dsh web 进程  监听 127.0.0.1:3101（官方安全限制：只允许回环）
+#     └─ socat 桥     监听 0.0.0.0:3102 → 转发 127.0.0.1:3101（容器间可达）
+#   nginx 容器（对外入口） upstream dsh:3102 → 宿主 8090
+#
+# 访问：http://localhost:8090/?token=<从 docker logs 取>
+#   docker logs dsh-preview | grep "dsh web ready"    （每次重启 token 会变化）
+#
+# 首次 up 会自动初始化官方 web profile + 注入 roubaai 四包并 pnpm install，
+# 数据落在命名卷 dsh-home，之后重启秒级。
+
+name: dsh-preview
+
+services:
+  dsh:
+    build:
+      context: .
+      dockerfile: dsh/Dockerfile
+    image: dsh-preview-dsh
+    container_name: dsh-preview
+    restart: unless-stopped
+    volumes:
+      - dsh-home:/home/dsh/dsh-home
+    # 供 nginx 容器经 compose 网络访问（容器内 socat 桥端口）
+    expose:
+      - "3102"
+
+  nginx:
+    image: nginx:alpine
+    container_name: dsh-preview-nginx
+    restart: unless-stopped
+    depends_on:
+      - dsh
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8090:80"
+
+volumes:
+  dsh-home:
